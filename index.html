@@ -299,7 +299,7 @@ const LIST_DEF={
 const BOARD_F={name:"Title",color:"Color",groups:"Groups"};
 const ITEM_F={name:"Title",boardId:"BoardId",groupId:"GroupId",status:"Status",owner:"OwnerEmail",due:"Due",prio:"Prio",notes:"Notes",order:"SortOrder"};
 const AVC=["#1B75BC","#2E7D4F","#B86E00","#B3261E","#5E5CB8","#00838F"];
-let msalApp=null,account=null,siteId=null,stage="",inflight=0,refreshing=false;const listIds={};
+let msalApp=null,account=null,siteId=null,stage="",inflight=0,refreshing=false,gen=0;const listIds={};
 
 /* ---------- Microsoft Graph ---------- */
 async function token(){
@@ -381,10 +381,10 @@ function explain(e){
 function fail(msg){S.mode="error";S.error=msg;render();}
 async function refresh(first){
   if(refreshing||(!first&&inflight>0))return;
-  refreshing=true;
+  refreshing=true;const g=gen;
   try{
     const[bs,is,ps]=await Promise.all([readList("boards"),readList("items"),readList("people")]);
-    if(!first&&inflight>0)return;
+    if(!first&&(inflight>0||gen!==g))return;
     const boards={},items={};
     bs.forEach(x=>{const b=boardFrom(x);boards[b.id]=b;});
     is.forEach(x=>{const i=itemFrom(x);items[i.id]=i;});
@@ -397,7 +397,7 @@ async function refresh(first){
 /* ---------- gravação ---------- */
 const queues={};
 function q(key,fn){
-  inflight++;
+  inflight++;gen++;
   const p=(queues[key]||Promise.resolve()).then(fn).catch(writeErr).finally(()=>{inflight--;});
   queues[key]=p;return p;
 }
@@ -414,7 +414,7 @@ function delBoard(id){Object.values(S.items).filter(i=>i.boardId===id).forEach(i
 function patchItem(id,p){const i=S.items[id];if(!i)return;S.items[id]={...i,...p};q("i"+id,()=>graph("PATCH",`${itemsPath("items")}/${id}/fields`,toFields(ITEM_F,p)));}
 function delItem(id){delete S.items[id];if(S.open===id)S.open=null;q("i"+id,()=>graph("DELETE",`${itemsPath("items")}/${id}`));}
 async function createSP(k,map,obj){
-  inflight++;
+  inflight++;gen++;
   try{const r=await graph("POST",itemsPath(k),{fields:toFields(map,obj)});return{...obj,id:r.id,createdAt:Date.now(),createdByName:S.names[S.me]};}
   catch(e){writeErr(e);return null;}
   finally{inflight--;}
@@ -440,7 +440,7 @@ function visible(boardId){
 /* ---------- render ---------- */
 function editing(){const a=document.activeElement;return a&&a.matches&&a.matches("input:not([type=date]),textarea,select")&&!a.matches(".search");}
 function schedule(){if(editing()){pending=true;return;}render();}
-document.addEventListener("focusout",()=>setTimeout(()=>{if(pending&&!editing())render();},0));
+document.addEventListener("focusout",e=>{const to=e.relatedTarget;setTimeout(()=>{if(pending&&!editing()&&!(to&&to.closest&&to.closest("button,[data-act]")))render();},0);});
 
 function render(){
   pending=false;closePop();
@@ -472,7 +472,7 @@ function side(){
 }
 function emptyView(){
   return`<div class="empty"><h1>O primeiro quadro</h1><p>Um quadro junta tarefas de um projeto ou de uma área da vida. Dê-lhe um nome para começar.</p>
-  <form data-form="first-board"><input name="n" placeholder="Por exemplo: Casa, Ventask, Férias" aria-label="Nome do quadro" ${S.readOnly?"disabled":""}><button class="primary" ${S.readOnly?"disabled":""}>Criar quadro</button></form></div>`;
+  <form data-form="first-board"><input name="n" data-act="draft" value="${esc(S.draft||"")}" placeholder="Por exemplo: Casa, Ventask, Férias" aria-label="Nome do quadro" ${S.readOnly?"disabled":""}><button class="primary" ${S.readOnly?"disabled":""}>Criar quadro</button></form></div>`;
 }
 function boardView(b){
   const tabs=VIEWS.map(([v,l])=>`<button role="tab" aria-selected="${S.view===v}" data-act="view" data-v="${v}">${l}</button>`).join("");
@@ -668,8 +668,8 @@ document.addEventListener("click",e=>{
   const f=CLICK[t.dataset.act];if(f){e.preventDefault();f(t,e);}
 });
 document.addEventListener("change",e=>{const t=e.target.closest("[data-act]");if(t&&CHANGE[t.dataset.act])CHANGE[t.dataset.act](t);});
-document.addEventListener("input",e=>{const t=e.target;if(t.dataset&&t.dataset.act==="q"){S.q=t.value;renderView();}});
-document.addEventListener("submit",e=>{const f=e.target;if(f.dataset.form==="first-board"){e.preventDefault();createBoard(f.n.value.trim()||"O meu quadro");}});
+document.addEventListener("input",e=>{const t=e.target;if(!t.dataset)return;if(t.dataset.act==="q"){S.q=t.value;renderView();}else if(t.dataset.act==="draft")S.draft=t.value;});
+document.addEventListener("submit",e=>{const f=e.target;if(f.dataset.form==="first-board"){e.preventDefault();const v=(f.n.value||S.draft||"").trim();S.draft="";createBoard(v);}});
 document.addEventListener("keydown",e=>{
   const t=e.target;
   if(e.key==="Escape"){if(!$("#pop").hidden){closePop();return;}if(S.open){S.open=null;render();return;}}
