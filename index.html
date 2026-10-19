@@ -280,7 +280,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 try{const p=JSON.parse(localStorage.getItem("quadros-prefs")||"{}");if(p.boardId)S.boardId=p.boardId;if(p.view)S.view=p.view;if(p.collapsed)S.collapsed=p.collapsed;}catch(e){}
 function savePrefs(){try{localStorage.setItem("quadros-prefs",JSON.stringify({boardId:S.boardId,view:S.view,collapsed:S.collapsed}));}catch(e){}}
 
-function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,3600);}
+function toast(msg,ms){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,ms||3600);}
 
 /* ---------- configuração ---------- */
 const CONFIG={
@@ -299,7 +299,7 @@ const LIST_DEF={
 const BOARD_F={name:"Title",color:"Color",groups:"Groups"};
 const ITEM_F={name:"Title",boardId:"BoardId",groupId:"GroupId",status:"Status",owner:"OwnerEmail",due:"Due",prio:"Prio",notes:"Notes",order:"SortOrder"};
 const AVC=["#1B75BC","#2E7D4F","#B86E00","#B3261E","#5E5CB8","#00838F"];
-let msalApp=null,account=null,siteId=null,stage="",inflight=0,refreshing=false,gen=0;const listIds={};
+let msalApp=null,account=null,siteId=null,stage="",inflight=0,refreshing=false,gen=0;const listIds={},colMap={Title:"Title"},colNum={};
 
 /* ---------- Microsoft Graph ---------- */
 async function token(){
@@ -331,11 +331,14 @@ async function readList(k){
   }
 }
 const itemsPath=k=>`/sites/${siteId}/lists/${listIds[k]}/items`;
-function toFields(map,p){const o={};for(const k in p){if(!(k in map))continue;let v=p[k];if(k==="groups")v=JSON.stringify(v||[]);else if(k==="order")v=Number(v)||0;else v=v==null?"":String(v);o[map[k]]=v;}return o;}
+function toFields(map,p){const o={};for(const k in p){if(!(k in map))continue;const col=map[k];let v=p[k];
+  if(k==="groups")v=JSON.stringify(v||[]);else if(k==="order")v=colNum[col]===false?String(Number(v)||0):(Number(v)||0);else v=v==null?"":String(v);
+  o[colMap[col]||col]=v;}return o;}
+const F=(f,n)=>f[colMap[n]||n];
 function parseJSON(s,d){try{return s?JSON.parse(s):d;}catch(e){return d;}}
 function who(x){return(x.createdBy&&x.createdBy.user&&x.createdBy.user.displayName)||"";}
-function boardFrom(x){const f=x.fields||{};return{id:x.id,name:f.Title||"Sem nome",color:f.Color||PALETTE[0],groups:parseJSON(f.Groups,[]),createdAt:Date.parse(x.createdDateTime)||0,createdByName:who(x)};}
-function itemFrom(x){const f=x.fields||{};return{id:x.id,boardId:f.BoardId||"",groupId:f.GroupId||"",name:f.Title||"",status:f.Status||"todo",owner:(f.OwnerEmail||"").toLowerCase(),due:f.Due||"",prio:f.Prio||"",notes:f.Notes||"",order:Number(f.SortOrder)||0,createdAt:Date.parse(x.createdDateTime)||0,createdByName:who(x)};}
+function boardFrom(x){const f=x.fields||{};return{id:x.id,name:f.Title||"Sem nome",color:F(f,"Color")||PALETTE[0],groups:parseJSON(F(f,"Groups"),[]),createdAt:Date.parse(x.createdDateTime)||0,createdByName:who(x)};}
+function itemFrom(x){const f=x.fields||{};return{id:x.id,boardId:String(F(f,"BoardId")||""),groupId:F(f,"GroupId")||"",name:f.Title||"",status:F(f,"Status")||"todo",owner:String(F(f,"OwnerEmail")||"").toLowerCase(),due:F(f,"Due")||"",prio:F(f,"Prio")||"",notes:F(f,"Notes")||"",order:Number(F(f,"SortOrder"))||0,createdAt:Date.parse(x.createdDateTime)||0,createdByName:who(x)};}
 function colorFor(e){let h=0;for(const c of String(e))h=(h*31+c.charCodeAt(0))>>>0;return AVC[h%AVC.length];}
 
 /* ---------- arranque ---------- */
@@ -366,10 +369,20 @@ async function connect(){
     listIds[k]=(await graph("POST",`/sites/${siteId}/lists`,{displayName:CONFIG.lists[k],columns:LIST_DEF[k],list:{template:"genericList"}})).id;
     await sleep(1500);
   }
+  stage="columns";
+  for(const k of Object.keys(CONFIG.lists))await checkColumns(k);
   stage="people";
   const ppl=await readList("people");
-  if(!ppl.some(p=>((p.fields||{}).Email||"").toLowerCase()===S.me)){
-    try{await graph("POST",itemsPath("people"),{fields:{Title:S.names[S.me],Email:S.me}});}catch(e){if(e.status!==403)throw e;}
+  if(!ppl.some(p=>String(F(p.fields||{},"Email")||"").toLowerCase()===S.me)){
+    try{await graph("POST",itemsPath("people"),{fields:{Title:S.names[S.me],[colMap.Email||"Email"]:S.me}});}catch(e){if(e.status!==403)throw e;}
+  }
+}
+async function checkColumns(k){
+  let cols=await graphAll(`/sites/${siteId}/lists/${listIds[k]}/columns?$select=name,displayName,number,text`);
+  for(const def of LIST_DEF[k]){
+    let c=cols.find(x=>x.name===def.name)||cols.find(x=>x.displayName===def.name);
+    if(!c){try{c=await graph("POST",`/sites/${siteId}/lists/${listIds[k]}/columns`,def);}catch(e){console.error("Quadros: coluna em falta",def.name,e);continue;}}
+    colMap[def.name]=c.name;colNum[def.name]=!!c.number;
   }
 }
 function explain(e){
@@ -389,7 +402,7 @@ async function refresh(first){
     bs.forEach(x=>{const b=boardFrom(x);boards[b.id]=b;});
     is.forEach(x=>{const i=itemFrom(x);items[i.id]=i;});
     S.boards=boards;S.items=items;S.people=[];
-    ps.forEach(x=>{const f=x.fields||{};const e=(f.Email||"").toLowerCase();if(!e)return;S.people.push(e);S.names[e]=f.Title||e;S.colors[e]=colorFor(e);});
+    ps.forEach(x=>{const f=x.fields||{};const e=String(F(f,"Email")||"").toLowerCase();if(!e)return;S.people.push(e);S.names[e]=f.Title||e;S.colors[e]=colorFor(e);});
     if(!first){fixBoard();schedule();}
   }finally{refreshing=false;}
 }
@@ -404,7 +417,8 @@ function q(key,fn){
 function writeErr(e){
   if(e.status===403){S.readOnly=true;toast("Esta conta não tem permissão para alterar o site Quadros.");render();}
   else if(e.status===401)toast("A sessão expirou. Recarregue a página para voltar a entrar.");
-  else toast("Não foi possível guardar: "+e.message);
+  else toast("Não foi possível guardar no SharePoint: "+e.message,10000);
+  console.error("Quadros: erro ao gravar",e);
   setTimeout(()=>refresh().catch(()=>{}),500);
 }
 function queueNames(){}
