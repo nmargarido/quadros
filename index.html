@@ -218,6 +218,10 @@ tr:hover .open,.open:focus-visible{opacity:1}
 
 .banner{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 20px;font-size:14px;color:var(--ink-2)}
 .banner b{color:var(--ink)}
+.banner.err{background:#FDECEA;border-bottom-color:#F3B8B1;color:#5F1A14;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.banner.err b{color:#8C1D12}
+.banner.err .btn{margin-left:auto}
+.add-row[data-busy]{opacity:.6}
 .empty{max-width:460px;margin:12vh auto 0;text-align:left}
 .empty h1{font-size:28px;letter-spacing:-.02em;margin:0 0 8px}
 .empty p{color:var(--ink-2);margin:0 0 18px}
@@ -263,7 +267,8 @@ const DOW=["seg","ter","qua","qui","sex","sáb","dom"];
 
 const S={boards:{},items:{},people:[],names:{},colors:{},me:null,boardId:null,view:"table",person:"all",q:"",
   collapsed:{},open:null,mode:"loading",loaded:false,readOnly:false,calY:0,calM:0,error:""};
-let pending=false,popAnchor=null;
+let pending=false,popAnchor=null;const rowDraft={};
+const rowKey=t=>t.dataset.status?"s:"+t.dataset.status:"g:"+t.dataset.gid;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36);
@@ -417,7 +422,7 @@ function q(key,fn){
 function writeErr(e){
   if(e.status===403){S.readOnly=true;toast("Esta conta não tem permissão para alterar o site Quadros.");render();}
   else if(e.status===401)toast("A sessão expirou. Recarregue a página para voltar a entrar.");
-  else toast("Não foi possível guardar no SharePoint: "+e.message,10000);
+  else{S.saveErr=e.message||"erro desconhecido";toast("Não foi possível guardar no SharePoint: "+S.saveErr,10000);schedule();}
   console.error("Quadros: erro ao gravar",e);
   setTimeout(()=>refresh().catch(()=>{}),500);
 }
@@ -454,6 +459,7 @@ function visible(boardId){
 /* ---------- render ---------- */
 function editing(){const a=document.activeElement;return a&&a.matches&&a.matches("input:not([type=date]),textarea,select")&&!a.matches(".search");}
 function schedule(){if(editing()){pending=true;return;}render();}
+document.addEventListener("focusout",e=>{const t=e.target;if(t&&t.dataset&&t.dataset.act==="add-row")addFromRow(t,false);});
 document.addEventListener("focusout",e=>{const to=e.relatedTarget;setTimeout(()=>{if(pending&&!editing()&&!(to&&to.closest&&to.closest("button,[data-act]")))render();},0);});
 
 function render(){
@@ -470,6 +476,7 @@ function render(){
 function renderView(){const b=S.boards[S.boardId];const v=$(".view");if(b&&v)v.innerHTML=viewHtml(b);}
 function banner(){
   if(S.readOnly)return`<div class="banner"><b>Só leitura.</b> Esta conta não tem permissão de edição no site Quadros.</div>`;
+  if(S.saveErr)return`<div class="banner err"><b>Uma alteração não ficou gravada.</b> O SharePoint respondeu: ${esc(S.saveErr)} <button class="btn" data-act="dismiss-err">Fechar</button></div>`;
   return"";
 }
 function side(){
@@ -525,7 +532,7 @@ function table(b){
       <span class="gcount">${gi.length} ${gi.length===1?"item":"itens"}</span>
       <button class="icon" data-act="group-menu" data-gid="${g.id}" aria-label="Opções do grupo">⋯</button></div>
       ${closed?"":`<div class="tw"><table class="grid"><thead><tr><th class="c-name">Item</th><th class="c-who">Responsável</th><th class="c-st">Estado</th><th class="c-due">Prazo</th><th class="c-pr">Prioridade</th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td colspan="5"><input class="add-row" data-act="add-row" data-gid="${g.id}" placeholder="+ Adicionar item" aria-label="Adicionar item a ${esc(g.name)}"></td></tr></tfoot></table></div>${distBar(gi)}`}
+      <tbody>${rows}</tbody><tfoot><tr><td colspan="5"><input class="add-row" data-act="add-row" data-gid="${g.id}" value="${esc(rowDraft["g:"+g.id]||"")}" placeholder="+ Adicionar item" aria-label="Adicionar item a ${esc(g.name)}"></td></tr></tfoot></table></div>${distBar(gi)}`}
     </section>`;
   }).join("");
   return gs+`<button class="ghost add-group" data-act="add-group" ${S.readOnly?"disabled":""}>+ Adicionar grupo</button>`;
@@ -539,7 +546,7 @@ function kanban(b){
       <div class="cmeta">${avatar(i.owner,"sm")}${i.due?`<span class="${isLate(i)?"late-t":""}">${fmtDate(i.due)}</span>`:""}${i.prio?`<span class="dot p-${i.prio}" title="Prioridade ${esc(PRIO.find(p=>p.id===i.prio)?.label||"")}"></span>`:""}</div>
       ${g?`<div class="cgroup" style="--g:${esc(g.color)}">${esc(g.name)}</div>`:""}</article>`;}).join("");
     return`<div class="col" data-drop="${s.id}"><div class="colhead st-${s.id}"><span>${s.label}</span><span>${ci.length}</span></div><div class="cards">${cards}</div>
-      ${g0&&!S.readOnly?`<input class="add-row" data-act="add-row" data-gid="${g0.id}" data-status="${s.id}" placeholder="+ Adicionar" aria-label="Adicionar item em ${s.label}">`:""}</div>`;
+      ${g0&&!S.readOnly?`<input class="add-row" data-act="add-row" data-gid="${g0.id}" data-status="${s.id}" value="${esc(rowDraft["s:"+s.id]||"")}" placeholder="+ Adicionar" aria-label="Adicionar item em ${s.label}">`:""}</div>`;
   }).join("")+`</div>`;
 }
 function calendar(b){
@@ -623,6 +630,19 @@ async function addItem(groupId,name,extra){
   const it=await createSP("items",ITEM_F,{boardId:b.id,groupId:gid,name:name||"Novo item",status:"todo",owner:"",due:"",prio:"",notes:"",order:Date.now(),...(extra||{})});
   if(it)S.items[it.id]=it;return it;
 }
+function addFromRow(t,viaEnter){
+  if(!t)return;const v=t.value.trim();if(!v)return;
+  const gid=t.dataset.gid,st=t.dataset.status;const extra=st?{status:st}:{};
+  const sel=st?`.add-row[data-status="${st}"]`:`.add-row[data-gid="${gid}"]`;
+  const key=rowKey(t);t.value="";delete rowDraft[key];t.dataset.busy="1";
+  addItem(gid,v,extra).then(it=>{
+    const cur=$(sel);const focused=cur&&document.activeElement===cur;const typed=cur?cur.value:"";
+    if(cur)delete cur.dataset.busy;
+    if(!it){if(!(cur&&cur.value)){rowDraft[key]=v;if(cur)cur.value=v;}return;}
+    if(viaEnter||focused||!editing()){render();const n=$(sel);if(n&&(viaEnter||focused)){n.value=typed;n.focus();}}
+    else pending=true;
+  });
+}
 function openNew(it){if(!it)return;S.open=it.id;render();requestAnimationFrame(()=>{const el=$(".dname");el&&(el.focus(),el.select());});}
 function setGroups(fn){const b=S.boards[S.boardId];if(!b||!guard())return;patchBoard(b.id,{groups:fn((b.groups||[]).map(g=>({...g})))});}
 
@@ -634,6 +654,7 @@ const CLICK={
   "sign-in":()=>msalApp.loginRedirect({scopes:CONFIG.scopes}),
   "sign-out":()=>msalApp.logoutRedirect({account}),
   "retry":()=>location.reload(),
+  "dismiss-err":()=>{S.saveErr="";render();},
   "collapse":t=>{const g=t.dataset.gid;S.collapsed[g]=!S.collapsed[g];savePrefs();render();},
   "add-group":()=>{const b=S.boards[S.boardId];const n=(b.groups||[]).length;setGroups(gs=>[...gs,{id:uid(),name:"Novo grupo",color:PALETTE[n%PALETTE.length]}]);render();
     requestAnimationFrame(()=>{const els=document.querySelectorAll(".gname");const el=els[els.length-1];el&&(el.focus(),el.select());});},
@@ -682,16 +703,14 @@ document.addEventListener("click",e=>{
   const f=CLICK[t.dataset.act];if(f){e.preventDefault();f(t,e);}
 });
 document.addEventListener("change",e=>{const t=e.target.closest("[data-act]");if(t&&CHANGE[t.dataset.act])CHANGE[t.dataset.act](t);});
-document.addEventListener("input",e=>{const t=e.target;if(!t.dataset)return;if(t.dataset.act==="q"){S.q=t.value;renderView();}else if(t.dataset.act==="draft")S.draft=t.value;});
+document.addEventListener("input",e=>{const t=e.target;if(!t.dataset)return;if(t.dataset.act==="q"){S.q=t.value;renderView();}else if(t.dataset.act==="draft")S.draft=t.value;else if(t.dataset.act==="add-row")rowDraft[rowKey(t)]=t.value;});
 document.addEventListener("submit",e=>{const f=e.target;if(f.dataset.form==="first-board"){e.preventDefault();const v=(f.n.value||S.draft||"").trim();S.draft="";createBoard(v);}});
 document.addEventListener("keydown",e=>{
   const t=e.target;
   if(e.key==="Escape"){if(!$("#pop").hidden){closePop();return;}if(S.open){S.open=null;render();return;}}
   if(e.key==="Enter"&&t.dataset){
     const a=t.dataset.act;
-    if(a==="add-row"){e.preventDefault();const v=t.value.trim();if(!v)return;const extra=t.dataset.status?{status:t.dataset.status}:{};
-      t.value="";t.disabled=true;
-      addItem(t.dataset.gid,v,extra).then(it=>{if(!it){t.disabled=false;t.value=v;return;}renderView();const sel=t.dataset.status?`.add-row[data-status="${t.dataset.status}"]`:`.add-row[data-gid="${t.dataset.gid}"]`;const n=$(sel);n&&n.focus();});}
+    if(a==="add-row"){e.preventDefault();addFromRow(t,true);}
     else if(a==="iname"||a==="btitle"||a==="gname"){e.preventDefault();t.blur();}
     else if(t.classList.contains("card")){e.preventDefault();CLICK.open(t);}
   }
