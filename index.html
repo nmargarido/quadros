@@ -137,6 +137,9 @@ tr:hover .open,.open:focus-visible{opacity:1}
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:14px;overflow-x:auto;padding-bottom:8px}
 .col{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:240px}
 .col.over{outline:2px dashed var(--brand);outline-offset:-4px}
+.day.over{outline:2px dashed var(--brand);outline-offset:-3px;background:var(--surface-2)}
+.chip[draggable=true]{cursor:grab}
+.chip.dragging{opacity:.4}
 .colhead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-weight:600;border-radius:9px 9px 0 0}
 .cards{display:flex;flex-direction:column;gap:8px;padding:10px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:grab;text-align:left}
@@ -952,8 +955,8 @@ function calendar(b){
   for(let k=0;k<cells;k++){
     const d=new Date(start.getFullYear(),start.getMonth(),start.getDate()+k);const ds=dstr(d);
     const di=items.filter(i=>i.due===ds);
-    html+=`<div class="day ${d.getMonth()!==m?"out":""} ${ds===t?"today":""} ${ds===sel?"sel":""}" data-act="cal-day" data-date="${ds}"><div class="dn"><b>${d.getDate()}</b>${S.readOnly?"":`<button class="dadd" data-act="cal-add" data-date="${ds}" aria-label="Adicionar item a ${d.getDate()} de ${MONTHS[d.getMonth()]}">+</button>`}</div>
-      ${di.map(i=>`<button class="chip st-${i.status||"todo"}" data-act="open" data-id="${i.id}" title="${esc(i.name)}">${esc(i.name)}</button>`).join("")}
+    html+=`<div class="day ${d.getMonth()!==m?"out":""} ${ds===t?"today":""} ${ds===sel?"sel":""}" data-act="cal-day" data-date="${ds}" data-calday="${ds}"><div class="dn"><b>${d.getDate()}</b>${S.readOnly?"":`<button class="dadd" data-act="cal-add" data-date="${ds}" aria-label="Adicionar item a ${d.getDate()} de ${MONTHS[d.getMonth()]}">+</button>`}</div>
+      ${di.map(i=>`<button class="chip st-${i.status||"todo"}" draggable="${S.readOnly?"false":"true"}" data-caldrag="${i.id}" data-act="open" data-id="${i.id}" title="${esc(i.name)}">${esc(i.name)}</button>`).join("")}
       ${di.length?`<span class="ddots" aria-hidden="true">${di.slice(0,3).map(i=>`<i class="st-${i.status||"todo"}"></i>`).join("")}${di.length>3?`<em>+${di.length-3}</em>`:""}</span>`:""}</div>`;
   }
   const nd=items.filter(i=>!i.due&&i.status!=="done").length;
@@ -1209,10 +1212,12 @@ document.addEventListener("keydown",e=>{
 document.addEventListener("focusout",e=>{const t=e.target;if(t&&t.dataset&&t.dataset.act==="cl-add"&&t.value.trim()){const v=t.value.trim();t.value="";patchChecklist(cl=>[...cl,{id:uid(),t:v,d:false}]);pending=true;}});
 
 /* arrastar: kanban (estado) e tabela (ordem e grupo) */
-let dragRow=null;
+let dragRow=null,dragCal=null;
 document.addEventListener("dragstart",e=>{
   const g=e.target.closest&&e.target.closest("[data-rowdrag]");
   if(g){dragRow=g.dataset.rowdrag;e.dataTransfer.setData("text/plain",dragRow);e.dataTransfer.effectAllowed="move";const tr=g.closest("tr");tr&&tr.classList.add("dragging");return;}
+  const cal=e.target.closest&&e.target.closest("[data-caldrag]");
+  if(cal){if(S.readOnly){e.preventDefault();return;}dragCal=cal.dataset.caldrag;e.dataTransfer.setData("text/plain",dragCal);e.dataTransfer.effectAllowed="move";cal.classList.add("dragging");return;}
   const c=e.target.closest&&e.target.closest("[data-drag]");if(!c)return;e.dataTransfer.setData("text/plain",c.dataset.drag);e.dataTransfer.effectAllowed="move";
 });
 function clearDrop(){document.querySelectorAll(".drop-before,.drop-after,.drop-end").forEach(x=>x.classList.remove("drop-before","drop-after","drop-end"));}
@@ -1224,10 +1229,15 @@ document.addEventListener("dragover",e=>{
     else if(!tr){const tb=sec.querySelector("tbody tr:last-child");if(tb)tb.classList.add("drop-after");else sec.classList.add("drop-end");}
     return;
   }
+  if(dragCal){
+    const day=e.target.closest&&e.target.closest("[data-calday]");document.querySelectorAll(".day.over").forEach(x=>x.classList.remove("over"));
+    if(day){e.preventDefault();day.classList.add("over");}
+    return;
+  }
   const col=e.target.closest&&e.target.closest("[data-drop]");if(!col)return;e.preventDefault();document.querySelectorAll(".col.over").forEach(c=>c!==col&&c.classList.remove("over"));col.classList.add("over");
 });
-document.addEventListener("dragleave",e=>{const col=e.target.closest&&e.target.closest("[data-drop]");if(col&&!col.contains(e.relatedTarget))col.classList.remove("over");});
-document.addEventListener("dragend",()=>{dragRow=null;clearDrop();document.querySelectorAll(".dragging").forEach(x=>x.classList.remove("dragging"));});
+document.addEventListener("dragleave",e=>{const col=e.target.closest&&e.target.closest("[data-drop],[data-calday]");if(col&&!col.contains(e.relatedTarget))col.classList.remove("over");});
+document.addEventListener("dragend",()=>{dragRow=null;dragCal=null;clearDrop();document.querySelectorAll(".dragging,.day.over").forEach(x=>x.classList.remove("dragging","over"));});
 document.addEventListener("drop",e=>{
   if(dragRow){
     const id=dragRow;dragRow=null;
@@ -1242,6 +1252,13 @@ document.addEventListener("drop",e=>{
     const order=prev&&next?(prev.order+next.order)/2:prev?prev.order+1000:next?next.order-1000:Date.now();
     if(gid===it.groupId&&order===it.order)return;
     patchItem(id,{order,groupId:gid});renderView();return;
+  }
+  if(dragCal){
+    const id=dragCal;dragCal=null;document.querySelectorAll(".day.over,.dragging").forEach(x=>x.classList.remove("over","dragging"));
+    const day=e.target.closest&&e.target.closest("[data-calday]");if(!day||!guard())return;e.preventDefault();
+    const it=S.items[id];if(!it)return;const nd=day.dataset.calday;if(it.due===nd)return;
+    const p={due:nd};if(it.recur&&/^[my]/.test(it.recur))p.recur=withAnchor(it.recur.split("@")[0],nd);
+    patchItem(id,p);S.calSel=nd;renderView();return;
   }
   const col=e.target.closest&&e.target.closest("[data-drop]");if(!col)return;e.preventDefault();col.classList.remove("over");
   const id=e.dataTransfer.getData("text/plain");const i=S.items[id];if(i&&i.status!==col.dataset.drop&&guard()){setStatus(id,col.dataset.drop);renderView();}});
