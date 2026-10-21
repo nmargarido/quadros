@@ -483,7 +483,7 @@ const ICON={
   me:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>'
 };
 
-const S={boards:{},items:{},comments:{},files:{},people:[],names:{},colors:{},me:null,boardId:null,page:"board",view:"table",person:"all",myWho:"me",q:"",tableBy:"group",kanbanDone:false,colClosed:{},
+const S={boards:{},items:{},comments:{},files:{},people:[],names:{},colors:{},me:null,boardId:null,page:"board",view:"table",person:"all",myWho:"me",q:"",tableBy:"all",kanbanDone:false,colClosed:{},
   collapsed:{},open:null,mode:"loading",loaded:false,readOnly:false,calY:0,calM:0,calSel:"",error:"",saveErr:"",feat:{comments:false,files:false}};
 let pending=false,popAnchor=null;const rowDraft={};
 const rowKey=t=>t.dataset.status?"s:"+t.dataset.status:"g:"+t.dataset.gid;
@@ -512,7 +512,7 @@ function fmtWhen(ts){
 function linkify(s){return esc(s).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g,u=>`<a href="${u}" target="_blank" rel="noopener">${u}</a>`);}
 
 {const n=new Date();S.calY=n.getFullYear();S.calM=n.getMonth();}
-try{const p=JSON.parse(localStorage.getItem("quadros-prefs")||"{}");if(p.boardId)S.boardId=p.boardId;if(p.view)S.view=p.view;if(p.collapsed)S.collapsed=p.collapsed;if(p.page)S.page=p.page;if(p.myWho)S.myWho=p.myWho;if(p.tableBy)S.tableBy=p.tableBy;if(p.kanbanDone)S.kanbanDone=p.kanbanDone;if(p.colClosed)S.colClosed=p.colClosed;}catch(e){}
+try{const p=JSON.parse(localStorage.getItem("quadros-prefs")||"{}");if(p.boardId)S.boardId=p.boardId;if(p.view)S.view=p.view;if(p.collapsed)S.collapsed=p.collapsed;if(p.page)S.page=p.page;if(p.myWho)S.myWho=p.myWho;if(p.tableBy)S.tableBy={group:"all",due:"week"}[p.tableBy]||p.tableBy;if(p.kanbanDone)S.kanbanDone=p.kanbanDone;if(p.colClosed)S.colClosed=p.colClosed;}catch(e){}
 function savePrefs(){try{localStorage.setItem("quadros-prefs",JSON.stringify({boardId:S.boardId,view:S.view,collapsed:S.collapsed,page:S.page,myWho:S.myWho,tableBy:S.tableBy,kanbanDone:S.kanbanDone,colClosed:S.colClosed}));}catch(e){}}
 
 /* toast com ação opcional (Anular) */
@@ -767,17 +767,6 @@ function avatar(id,cls){
   return`<span class="av ${cls||""}" style="--av:${esc(S.colors[id]||"#6D6F71")}" title="${esc(nameOf(id))}">${esc(initials(nameOf(id)))}</span>`;
 }
 function byPerson(i,p){return p==="all"?true:p==="me"?i.owner===S.me:p==="none"?!i.owner:i.owner===p;}
-function dueBuckets(){
-  const t=today();const d=pdate(t);
-  const endWeek=dstr(new Date(d.getFullYear(),d.getMonth(),d.getDate()+(7-((d.getDay()+6)%7))-1)); // domingo desta semana
-  return[
-    {id:"late",name:"Atrasados",color:"#ED1C24",fn:i=>i.due&&i.due<t},
-    {id:"today",name:"Hoje",color:"#FBB03F",fn:i=>i.due===t},
-    {id:"week",name:"Esta semana",color:"#1B75BC",fn:i=>i.due>t&&i.due<=endWeek},
-    {id:"later",name:"Mais tarde",color:"#6D6F71",fn:i=>i.due>endWeek},
-    {id:"nodue",name:"Sem prazo",color:"#8CC63F",fn:i=>!i.due}
-  ];
-}
 function visible(boardId){
   const q=S.q.trim().toLowerCase();
   return Object.values(S.items).filter(i=>i.boardId===boardId)
@@ -865,7 +854,7 @@ function drawFiles(id){const el=$("#dfiles");if(el&&el.dataset.id===id)el.innerH
 
 /* ---------- render ---------- */
 function editing(){const a=document.activeElement;return a&&a.matches&&a.matches("input:not([type=date]):not([type=file]):not([type=checkbox]),textarea,select")&&!a.matches(".search");}
-function schedule(){if(editing()){pending=true;return;}render();}
+function schedule(){if(editing()||popOpen()){pending=true;return;}render();}
 document.addEventListener("focusout",e=>{const t=e.target;if(t&&t.dataset&&t.dataset.act==="add-row")addFromRow(t,false);});
 document.addEventListener("focusout",e=>{const to=e.relatedTarget;setTimeout(()=>{if(pending&&!editing()&&!(to&&to.closest&&to.closest("button,[data-act]")))render();},0);});
 
@@ -921,7 +910,7 @@ function boardView(b){
     <div class="title-row"><input class="btitle" data-act="btitle" value="${esc(b.name)}" aria-label="Nome do quadro"><button class="icon" data-act="board-menu" aria-label="Opções do quadro">⋯</button></div>
     <div class="bar"><div class="tabs" role="tablist">${tabs}</div>
       <div class="tools"><button class="primary fab" data-act="new-item" ${S.readOnly?"disabled":""}><span class="fab-p" aria-hidden="true">+ </span>Novo item</button>
-      ${S.view==="table"?`<div class="seg-toggle" role="tablist" aria-label="Agrupar por"><button role="tab" aria-selected="${S.tableBy==="group"}" data-act="table-by" data-v="group">Grupos</button><button role="tab" aria-selected="${S.tableBy==="due"}" data-act="table-by" data-v="due">Por prazo</button></div>`:""}
+      ${S.view==="table"?`<div class="seg-toggle" role="tablist" aria-label="Filtro de prazo">${[["today","Hoje"],["week","Semana"],["all","Tudo"]].map(([v,l])=>`<button role="tab" aria-selected="${S.tableBy===v}" data-act="table-by" data-v="${v}">${l}</button>`).join("")}</div>`:""}
       ${S.view==="kanban"&&S.kanbanDone?`<button class="btn" data-act="toggle-done">Ocultar concluídos</button>`:""}
       <select class="pf" data-act="person" aria-label="Filtrar por pessoa">${personOpts(S.person)}</select>
       <input type="search" class="search pf" data-act="q" placeholder="Procurar" value="${esc(S.q)}" aria-label="Procurar itens"></div>
@@ -967,19 +956,25 @@ function tableByGroup(b){
   }).join("");
   return gs+`<button class="ghost add-group" data-act="add-group" ${S.readOnly?"disabled":""}>+ Adicionar grupo</button>`;
 }
-function tableByDue(b){
-  const items=visible(b.id).filter(i=>i.status!=="done").sort((a,c)=>(a.due||"9999").localeCompare(c.due||"9999")||(a.order||0)-(c.order||0));
-  const secs=dueBuckets().map(bk=>{
-    const gi=items.filter(bk.fn);if(!gi.length)return"";const closed=!!S.collapsed["due:"+bk.id];
-    return`<section class="group ${bk.id==="late"?"late":""}" style="--g:${bk.color}">
-      <div class="ghead"><button class="caret ${closed?"closed":""}" data-act="collapse" data-gid="due:${bk.id}" aria-label="${closed?"Expandir":"Recolher"}" aria-expanded="${!closed}">▾</button>
-      <span class="gname-ro">${bk.name}</span><span class="gcount">${gi.length} ${gi.length===1?"item":"itens"}</span></div>
-      ${closed?"":`<div class="tw"><table class="grid">${THEAD}<tbody>${gi.map(i=>trow(i,false)).join("")}</tbody></table></div>`}
-    </section>`;
-  }).join("");
-  return (secs||`<div class="empty-note">Nada em aberto neste quadro.</div>`);
+function tableByDue(b,scope){
+  const t=today();const d=pdate(t);
+  const endWeek=dstr(new Date(d.getFullYear(),d.getMonth(),d.getDate()+(7-((d.getDay()+6)%7))-1));
+  const inScope=scope==="today"?(i=>i.due&&i.due<=t):(i=>i.due&&i.due<=endWeek); // atrasados incluídos em ambos
+  const items=visible(b.id).filter(i=>i.status!=="done"&&inScope(i)).sort((a,c)=>(a.due||"9999").localeCompare(c.due||"9999")||(a.order||0)-(c.order||0));
+  const late=items.filter(i=>i.due<t);const rest=items.filter(i=>i.due>=t);
+  const sec=(name,color,cls,arr)=>!arr.length?"":`<section class="group ${cls||""}" style="--g:${color}">
+      <div class="ghead"><span class="gname-ro">${name}</span><span class="gcount">${arr.length} ${arr.length===1?"item":"itens"}</span></div>
+      <div class="tw"><table class="grid">${THEAD}<tbody>${arr.map(i=>trow(i,false)).join("")}</tbody></table></div></section>`;
+  const body=scope==="today"
+    ? sec("Atrasados","#ED1C24","late",late)+sec("Hoje","#FBB03F","",rest)
+    : sec("Atrasados","#ED1C24","late",late)+sec("Hoje","#FBB03F","",items.filter(i=>i.due===t))+sec("Esta semana","#1B75BC","",items.filter(i=>i.due>t));
+  if(!items.length){
+    const msg=scope==="today"?"Nada atrasado nem para hoje. ✅":"Nada atrasado nem para esta semana. ✅";
+    return`<div class="empty-note">${msg}</div>`;
+  }
+  return body;
 }
-function table(b){return S.tableBy==="due"?tableByDue(b):tableByGroup(b);}
+function table(b){return S.tableBy==="today"||S.tableBy==="week"?tableByDue(b,S.tableBy):tableByGroup(b);}
 function card(i,showBoard){
   const b=S.boards[i.boardId];const g=b&&(b.groups||[]).find(x=>x.id===i.groupId);
   const meta=[avatar(i.owner,"sm"),i.due?`<span class="cdue ${isLate(i)?"late-t":""}">${fmtDate(i.due)}</span>`:"",i.prio?`<span class="dot p-${i.prio}" title="Prioridade ${esc(PRIO.find(p=>p.id===i.prio)?.label||"")}"></span>`:"",badges(i)].filter(Boolean).join("");
@@ -1105,6 +1100,7 @@ function openPop(anchor,html){
   p.style.left=Math.max(8,x)+"px";p.style.top=y+"px";
   const f=p.querySelector("button");f&&f.focus();
 }
+function popOpen(){return!$("#pop").hidden;}
 function closePop(){const p=$("#pop");if(!p.hidden){p.hidden=true;p.innerHTML="";if(popAnchor&&document.contains(popAnchor))popAnchor.focus();popAnchor=null;}}
 function swatches(act,cur,extra){return`<div class="swatches">${PALETTE.map(c=>`<button data-act="${act}" data-v="${c}" ${extra||""} style="background:${c}" aria-label="Cor ${c}" aria-pressed="${cur===c}"></button>`).join("")}</div>`;}
 
