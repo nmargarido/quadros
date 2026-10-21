@@ -161,6 +161,8 @@ tr:hover .open,.open:focus-visible{opacity:1}
 .seg-toggle button[aria-selected=true]{background:var(--brand);color:#fff;font-weight:600}
 .gname-ro{font-weight:700;font-size:15px;color:var(--g);padding:5px 2px}
 .group.late .gname-ro{color:var(--late)}
+.group.today-fixed{margin-bottom:22px}
+.group.today-fixed .ghead{border-bottom:2px solid var(--g)}
 .empty-note{color:var(--ink-3);padding:24px 4px}
 .col .add-row{border-top:1px solid var(--line);margin-top:auto;border-radius:0 0 10px 10px}
 
@@ -941,9 +943,17 @@ function trow(i,drag){return`<tr data-row="${i.id}">
       <td><input type="date" class="due ${isLate(i)?"late":""}" data-act="due" data-id="${i.id}" value="${esc(i.due||"")}" aria-label="Prazo"></td>
       <td><button class="prio" data-act="prio" data-id="${i.id}" aria-label="Prioridade">${prioHtml(i.prio)}</button></td></tr>`;}
 function tableByGroup(b){
-  const items=visible(b.id);const drag=!S.readOnly;
+  const items=visible(b.id);const drag=!S.readOnly;const t=today();
+  const todayItems=items.filter(i=>i.due&&i.due<=t&&i.status!=="done").sort((a,c)=>(a.due||"").localeCompare(c.due||"")||(a.order||0)-(c.order||0));
+  const todaySet=new Set(todayItems.map(i=>i.id));
+  const closedToday=!!S.collapsed["today-fixed"];
+  const todaySection=!todayItems.length?"":`<section class="group today-fixed" style="--g:#FBB03F">
+      <div class="ghead"><button class="caret ${closedToday?"closed":""}" data-act="collapse" data-gid="today-fixed" aria-label="${closedToday?"Expandir":"Recolher"}" aria-expanded="${!closedToday}">▾</button>
+      <span class="gname-ro">Hoje</span><span class="gcount">${todayItems.length} ${todayItems.length===1?"item":"itens"}</span></div>
+      ${closedToday?"":`<div class="tw"><table class="grid">${THEAD}<tbody>${todayItems.map(i=>trow(i,false)).join("")}</tbody></table></div>`}
+    </section>`;
   const gs=(b.groups||[]).map(g=>{
-    const gi=items.filter(i=>i.groupId===g.id);const closed=!!S.collapsed[g.id];
+    const gi=items.filter(i=>i.groupId===g.id&&!todaySet.has(i.id));const closed=!!S.collapsed[g.id];
     const rows=gi.map(i=>trow(i,drag)).join("");
     return`<section class="group" style="--g:${esc(g.color)}" data-gsec="${g.id}">
       <div class="ghead"><button class="caret ${closed?"closed":""}" data-act="collapse" data-gid="${g.id}" aria-label="${closed?"Expandir":"Recolher"} grupo" aria-expanded="${!closed}">▾</button>
@@ -954,7 +964,7 @@ function tableByGroup(b){
       <tbody>${rows}</tbody><tfoot><tr><td colspan="5"><input class="add-row" data-act="add-row" data-gid="${g.id}" value="${esc(rowDraft["g:"+g.id]||"")}" placeholder="+ Adicionar item" aria-label="Adicionar item a ${esc(g.name)}"></td></tr></tfoot></table></div>${distBar(gi)}`}
     </section>`;
   }).join("");
-  return gs+`<button class="ghost add-group" data-act="add-group" ${S.readOnly?"disabled":""}>+ Adicionar grupo</button>`;
+  return todaySection+gs+`<button class="ghost add-group" data-act="add-group" ${S.readOnly?"disabled":""}>+ Adicionar grupo</button>`;
 }
 function tableByDue(b,scope){
   const t=today();const d=pdate(t);
